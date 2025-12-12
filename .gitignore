@@ -1,0 +1,15 @@
+# Gradle
+.gradle/
+build/
+*/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+
+# Local configs
+local.properties
+
+# OS junk
+.DS_Store
