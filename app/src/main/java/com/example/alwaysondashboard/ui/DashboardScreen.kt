@@ -21,8 +21,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -117,17 +120,30 @@ fun DashboardScreen(
     val isNarrowScreen = config.screenWidthDp < 700
     val leftWeight = if (isNarrowScreen) 0.45f else 0.4f
     val rightWeight = 1f - leftWeight
+    val systemDark = isSystemInDarkTheme()
+    var useDarkTheme by rememberSaveable { mutableStateOf(systemDark) }
 
     var showApiDialog by rememberSaveable { mutableStateOf(false) }
     var apiInput by rememberSaveable { mutableStateOf("") }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
         onResult = { result ->
             val hasLocation = result[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                     result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-            val hasCalendar = result[Manifest.permission.READ_CALENDAR] == true
-            viewModel.onPermissionsUpdated(hasLocation, hasCalendar)
+            viewModel.onPermissionsUpdated(
+                hasLocation = hasLocation,
+                hasCalendar = uiState.hasCalendarPermission
+            )
+        }
+    )
+    val calendarPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted ->
+            viewModel.onPermissionsUpdated(
+                hasLocation = uiState.hasLocationPermission,
+                hasCalendar = granted
+            )
         }
     )
 
@@ -143,7 +159,7 @@ fun DashboardScreen(
         }
     }
 
-    AlwaysOnDashboardTheme {
+    AlwaysOnDashboardTheme(useDarkTheme = useDarkTheme) {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -178,6 +194,8 @@ fun DashboardScreen(
                         ClockPanel(
                             clock = uiState.clock,
                             metrics = metrics,
+                            isDarkTheme = useDarkTheme,
+                            onToggleTheme = { useDarkTheme = !useDarkTheme },
                             onSettingsClick = { showApiDialog = true }
                         )
                         Spacer(modifier = Modifier.height(metrics.sectionSpacing))
@@ -185,7 +203,7 @@ fun DashboardScreen(
                             events = uiState.calendarEvents,
                             hasPermission = uiState.hasCalendarPermission,
                             onRequestPermission = {
-                                permissionLauncher.launch(arrayOf(Manifest.permission.READ_CALENDAR))
+                                calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
                             },
                             metrics = metrics,
                             modifier = Modifier.weight(1f)
@@ -199,13 +217,14 @@ fun DashboardScreen(
                             units = uiState.units,
                             onRefresh = { viewModel.refreshWeather() },
                             onRequestPermission = {
-                                permissionLauncher.launch(
+                                locationPermissionLauncher.launch(
                                     arrayOf(
                                         Manifest.permission.ACCESS_FINE_LOCATION,
                                         Manifest.permission.ACCESS_COARSE_LOCATION
                                     )
                                 )
                             },
+                            hasLocationPermission = uiState.hasLocationPermission,
                             metrics = metrics,
                             modifier = Modifier.weight(1f)
                         )
@@ -248,6 +267,8 @@ fun DashboardScreen(
 private fun ClockPanel(
     clock: ClockState,
     metrics: DashboardMetrics,
+    isDarkTheme: Boolean,
+    onToggleTheme: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
     Card(
@@ -294,17 +315,30 @@ private fun ClockPanel(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(
-                onClick = onSettingsClick,
-                modifier = Modifier
-                    .size(32.dp)
-                    .align(Alignment.BottomEnd)
+            Row(
+                modifier = Modifier.align(Alignment.BottomEnd),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "Settings",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                IconButton(
+                    onClick = onToggleTheme,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
+                        contentDescription = "Toggle theme",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(
+                    onClick = onSettingsClick,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
@@ -411,6 +445,7 @@ private fun WeatherPanel(
     units: TemperatureUnit,
     onRefresh: () -> Unit,
     onRequestPermission: () -> Unit,
+    hasLocationPermission: Boolean,
     metrics: DashboardMetrics,
     modifier: Modifier = Modifier
 ) {
@@ -438,10 +473,15 @@ private fun WeatherPanel(
 
                 state.data != null -> WeatherContent(bundle = state.data, units = units, metrics = metrics, onRefresh = onRefresh)
 
-                state.errorMessage != null -> PermissionPrompt(
-                    message = state.errorMessage,
+                !hasLocationPermission -> PermissionPrompt(
+                    message = "Allow location access to show weather.",
                     onRequestPermission = onRequestPermission,
                     icon = Icons.Default.LocationOn
+                )
+
+                state.errorMessage != null -> ErrorPrompt(
+                    message = state.errorMessage,
+                    onRetry = onRefresh
                 )
             }
         }
@@ -590,6 +630,32 @@ private fun PermissionPrompt(
             )
             Spacer(modifier = Modifier.width(6.dp))
             Text("Grant permission")
+        }
+    }
+}
+
+@Composable
+private fun ErrorPrompt(
+    message: String,
+    onRetry: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Button(onClick = onRetry) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Retry")
         }
     }
 }
