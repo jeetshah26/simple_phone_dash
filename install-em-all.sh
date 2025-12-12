@@ -1,9 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
 GRADLE_USER_HOME=$(pwd)/.gradle ./gradlew --no-daemon assembleDebug
-adb -s emulator-5554 uninstall com.example.alwaysondashboard
-adb -s emulator-5554 install ./app/build/outputs/apk/debug/app-debug.apk
-adb -s emulator-5554 shell am start -n com.example.alwaysondashboard/.MainActivity
 
-adb -s e0144b73 uninstall com.example.alwaysondashboard
-adb -s e0144b73 install ./app/build/outputs/apk/debug/app-debug.apk
-adb -s e0144b73 shell am start -n com.example.alwaysondashboard/.MainActivity
-
+targets=$(adb devices | awk 'NR>1 && $2=="device"{print $1}')
+for serial in $targets; do
+  echo "Deploying to $serial"
+  adb -s "$serial" uninstall com.example.alwaysondashboard || true
+  adb -s "$serial" install -r ./app/build/outputs/apk/debug/app-debug.apk
+  adb -s "$serial" shell am start -n com.example.alwaysondashboard/.MainActivity
+done

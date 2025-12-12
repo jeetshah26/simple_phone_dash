@@ -26,9 +26,10 @@ class WeatherRepository(
     suspend fun loadWeather(
         latitude: Double,
         longitude: Double,
-        units: TemperatureUnit
+        units: TemperatureUnit,
+        apiKeyOverride: String? = null
     ): Result<WeatherBundle> {
-        val apiKey = BuildConfig.OPEN_WEATHER_API_KEY
+        val apiKey = apiKeyOverride?.takeIf { it.isNotBlank() } ?: BuildConfig.OPEN_WEATHER_API_KEY
         if (apiKey.isEmpty()) {
             return Result.failure(IllegalStateException("Missing OPEN_WEATHER_API_KEY in local.properties"))
         }

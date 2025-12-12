@@ -53,6 +53,8 @@ class DashboardViewModel(
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
 
     private var clockJob: Job? = null
+    private var customApiKey: String? = null
+    private var weatherAutoJob: Job? = null
 
     init {
         startClock()
@@ -72,6 +74,7 @@ class DashboardViewModel(
 
         if (needWeatherRefresh) {
             refreshWeather()
+            startWeatherAutoRefresh()
         }
         if (needCalendarRefresh) {
             refreshCalendar()
@@ -87,6 +90,18 @@ class DashboardViewModel(
             }.onFailure { error ->
                 _uiState.update { it.copy(calendarEvents = emptyList()) }
                 println("Calendar load error: ${error.localizedMessage}")
+            }
+        }
+    }
+
+    private fun startWeatherAutoRefresh() {
+        weatherAutoJob?.cancel()
+        if (!_uiState.value.hasLocationPermission) return
+
+        weatherAutoJob = viewModelScope.launch {
+            while (isActive) {
+                delay(15 * 60 * 1000L) // 15 minutes
+                refreshWeather()
             }
         }
     }
@@ -123,7 +138,8 @@ class DashboardViewModel(
                 val weatherResult = weatherRepository.loadWeather(
                     latitude = location.latitude,
                     longitude = location.longitude,
-                    units = _uiState.value.units
+                    units = _uiState.value.units,
+                    apiKeyOverride = customApiKey
                 )
                 weatherResult.onSuccess { bundle ->
                     _uiState.update {
@@ -150,6 +166,12 @@ class DashboardViewModel(
         }
     }
 
+    fun updateApiKey(key: String) {
+        customApiKey = key.trim().ifEmpty { null }
+        refreshWeather()
+        startWeatherAutoRefresh()
+    }
+
     private fun startClock() {
         clockJob?.cancel()
         clockJob = viewModelScope.launch {
@@ -173,6 +195,7 @@ class DashboardViewModel(
 
     override fun onCleared() {
         clockJob?.cancel()
+        weatherAutoJob?.cancel()
         super.onCleared()
     }
 

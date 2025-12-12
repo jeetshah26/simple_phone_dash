@@ -25,17 +25,24 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -111,6 +118,9 @@ fun DashboardScreen(
     val leftWeight = if (isNarrowScreen) 0.45f else 0.4f
     val rightWeight = 1f - leftWeight
 
+    var showApiDialog by rememberSaveable { mutableStateOf(false) }
+    var apiInput by rememberSaveable { mutableStateOf("") }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
         onResult = { result ->
@@ -165,7 +175,11 @@ fun DashboardScreen(
                     Column(
                         modifier = leftModifier
                     ) {
-                        ClockPanel(uiState.clock, metrics)
+                        ClockPanel(
+                            clock = uiState.clock,
+                            metrics = metrics,
+                            onSettingsClick = { showApiDialog = true }
+                        )
                         Spacer(modifier = Modifier.height(metrics.sectionSpacing))
                         CalendarPanel(
                             events = uiState.calendarEvents,
@@ -200,49 +214,98 @@ fun DashboardScreen(
             }
         }
     }
+
+    if (showApiDialog) {
+        AlertDialog(
+            onDismissRequest = { showApiDialog = false },
+            title = { Text("Set OpenWeather API key") },
+            text = {
+                TextField(
+                    value = apiInput,
+                    onValueChange = { apiInput = it },
+                    placeholder = { Text("Enter API key") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.updateApiKey(apiInput)
+                    showApiDialog = false
+                }) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showApiDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
-private fun ClockPanel(clock: ClockState, metrics: DashboardMetrics) {
+private fun ClockPanel(
+    clock: ClockState,
+    metrics: DashboardMetrics,
+    onSettingsClick: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
-            modifier = Modifier.padding(metrics.cardPadding),
-            verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing / 1.5f)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(metrics.cardPadding)
         ) {
-            val parts = clock.timeText.trim().split(" ")
-            val mainTime = if (parts.size >= 2) parts.dropLast(1).joinToString(" ") else clock.timeText
-            val ampm = if (parts.size >= 2) parts.last() else ""
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (ampm.isNotEmpty()) {
-                    Text(
-                        text = mainTime,
-                        modifier = Modifier.alignByBaseline(),
-                        style = MaterialTheme.typography.displayLarge.copy(fontSize = metrics.clockSize),
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = ampm,
-                        modifier = Modifier.alignByBaseline(),
-                        style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.ampmSize),
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    Text(
-                        text = mainTime,
-                        style = MaterialTheme.typography.displayLarge.copy(fontSize = metrics.clockSize),
-                        fontWeight = FontWeight.Bold
-                    )
+            Column(
+                verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing / 1.5f)
+            ) {
+                val parts = clock.timeText.trim().split(" ")
+                val mainTime = if (parts.size >= 2) parts.dropLast(1).joinToString(" ") else clock.timeText
+                val ampm = if (parts.size >= 2) parts.last() else ""
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (ampm.isNotEmpty()) {
+                        Text(
+                            text = mainTime,
+                            modifier = Modifier.alignByBaseline(),
+                            style = MaterialTheme.typography.displayLarge.copy(fontSize = metrics.clockSize),
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = ampm,
+                            modifier = Modifier.alignByBaseline(),
+                            style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.ampmSize),
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Text(
+                            text = mainTime,
+                            style = MaterialTheme.typography.displayLarge.copy(fontSize = metrics.clockSize),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
+                Text(
+                    text = clock.dateText,
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.dateSize),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            Text(
-                text = clock.dateText,
-                style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.dateSize),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            IconButton(
+                onClick = onSettingsClick,
+                modifier = Modifier
+                    .size(32.dp)
+                    .align(Alignment.BottomEnd)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
