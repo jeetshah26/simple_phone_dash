@@ -56,6 +56,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -512,15 +515,20 @@ private fun WeatherContent(
     isLoading: Boolean
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing)
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing * 0.4f)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(
                     text = bundle.locationLabel,
                     style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.headingSize),
@@ -532,9 +540,29 @@ private fun WeatherContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier.padding(horizontal = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                IconButton(onClick = onToggleUnits, modifier = Modifier.size(32.dp)) {
+                    Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = "Swap units")
+                }
+                IconButton(onClick = onRefresh, modifier = Modifier.size(32.dp)) {
+                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh")
+                }
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Text(
                     text = "${bundle.current.temperature.toInt()}${units.symbol}",
@@ -546,18 +574,6 @@ private fun WeatherContent(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp
-                    )
-                }
-                IconButton(onClick = onToggleUnits, modifier = Modifier.size(32.dp)) {
-                    Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = "Swap units")
-                }
-                IconButton(onClick = onRefresh, modifier = Modifier.size(32.dp)) {
-                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh")
-                }
             }
         }
 
@@ -581,11 +597,11 @@ private fun WeatherContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(metrics.cardPadding),
+                        .padding(metrics.cardPadding * 0.5f),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
                             "Tomorrow",
                             fontWeight = FontWeight.SemiBold,
@@ -702,11 +718,11 @@ private fun RunningConditions(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(metrics.cardPadding),
+                .padding(metrics.cardPadding * 0.5f),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     text = "Running conditions",
                     style = MaterialTheme.typography.titleSmall.copy(fontSize = metrics.headingSize),
