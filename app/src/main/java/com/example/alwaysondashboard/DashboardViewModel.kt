@@ -106,7 +106,7 @@ class DashboardViewModel(
         }
     }
 
-    fun refreshWeather() {
+    fun refreshWeather(forceFreshLocation: Boolean = false) {
         if (!_uiState.value.hasLocationPermission) {
             _uiState.update {
                 it.copy(
@@ -123,7 +123,7 @@ class DashboardViewModel(
         _uiState.update { it.copy(weather = WeatherUiState(isLoading = true, data = it.weather.data)) }
 
         viewModelScope.launch {
-            val locationResult = locationRepository.getCurrentLocation()
+            val locationResult = locationRepository.getCurrentLocation(forceFresh = forceFreshLocation)
             locationResult.onFailure { error ->
                 _uiState.update {
                     it.copy(
@@ -170,6 +170,62 @@ class DashboardViewModel(
         customApiKey = key.trim().ifEmpty { null }
         refreshWeather()
         startWeatherAutoRefresh()
+    }
+
+    fun toggleUnits() {
+        val newUnits = if (_uiState.value.units == TemperatureUnit.METRIC) {
+            TemperatureUnit.IMPERIAL
+        } else {
+            TemperatureUnit.METRIC
+        }
+        val converted = _uiState.value.weather.data?.let { bundle ->
+            convertBundleUnits(bundle, _uiState.value.units, newUnits)
+        }
+        _uiState.update {
+            it.copy(
+                units = newUnits,
+                weather = it.weather.copy(data = converted ?: it.weather.data)
+            )
+        }
+        refreshWeather()
+    }
+
+    private fun convertBundleUnits(
+        bundle: WeatherBundle,
+        from: TemperatureUnit,
+        to: TemperatureUnit
+    ): WeatherBundle {
+        if (from == to) return bundle
+        val tempConverter: (Double) -> Double = { value ->
+            if (to == TemperatureUnit.IMPERIAL) (value * 9 / 5) + 32 else (value - 32) * 5 / 9
+        }
+        val windConverter: (Double?) -> Double? = { value ->
+            value?.let {
+                if (to == TemperatureUnit.IMPERIAL) it * 2.23694 else it / 2.23694
+            }
+        }
+
+        fun convertCurrent(c: com.example.alwaysondashboard.data.CurrentWeather) =
+            c.copy(
+                temperature = tempConverter(c.temperature),
+                feelsLike = tempConverter(c.feelsLike),
+                windSpeed = windConverter(c.windSpeed)
+            )
+
+        fun convertHourly(h: com.example.alwaysondashboard.data.HourlyWeather) =
+            h.copy(temperature = tempConverter(h.temperature))
+
+        fun convertDaily(d: com.example.alwaysondashboard.data.DailyWeather) =
+            d.copy(
+                minTemp = tempConverter(d.minTemp),
+                maxTemp = tempConverter(d.maxTemp)
+            )
+
+        return bundle.copy(
+            current = convertCurrent(bundle.current),
+            hourly = bundle.hourly.map { convertHourly(it) },
+            tomorrow = bundle.tomorrow?.let { convertDaily(it) }
+        )
     }
 
     private fun startClock() {

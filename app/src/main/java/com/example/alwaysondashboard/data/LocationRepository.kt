@@ -23,35 +23,39 @@ class LocationRepository(
 ) {
 
     @SuppressLint("MissingPermission")
-    suspend fun getCurrentLocation(): Result<Location> = suspendCancellableCoroutine { cont ->
+    suspend fun getCurrentLocation(forceFresh: Boolean = false): Result<Location> = suspendCancellableCoroutine { cont ->
         val tokenSource = CancellationTokenSource()
         fusedLocationClient.getCurrentLocation(
-            Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+            if (forceFresh) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY,
             tokenSource.token
         ).addOnSuccessListener { location ->
             if (cont.isActive) {
                 if (location != null) {
                     cont.resume(Result.success(location))
                 } else {
-                    // Fallback to last known location if current is unavailable
-                    fusedLocationClient.lastLocation
-                        .addOnSuccessListener { last ->
-                            if (cont.isActive) {
-                                if (last != null) {
-                                    cont.resume(Result.success(last))
-                                } else {
-                                    tryLegacyLocation(cont, IllegalStateException("Location unavailable"))
+                    if (!forceFresh) {
+                        // Fallback to last known location if current is unavailable
+                        fusedLocationClient.lastLocation
+                            .addOnSuccessListener { last ->
+                                if (cont.isActive) {
+                                    if (last != null) {
+                                        cont.resume(Result.success(last))
+                                    } else {
+                                        tryLegacyLocation(cont, IllegalStateException("Location unavailable"), forceFresh)
+                                    }
                                 }
                             }
-                        }
-                        .addOnFailureListener { error ->
-                            if (cont.isActive) tryLegacyLocation(cont, error)
-                        }
+                            .addOnFailureListener { error ->
+                                if (cont.isActive) tryLegacyLocation(cont, error, forceFresh)
+                            }
+                    } else {
+                        tryLegacyLocation(cont, IllegalStateException("Location unavailable"), forceFresh)
+                    }
                 }
             }
         }.addOnFailureListener { error ->
             if (cont.isActive) {
-                tryLegacyLocation(cont, error)
+                tryLegacyLocation(cont, error, forceFresh)
             }
         }
 
@@ -61,21 +65,24 @@ class LocationRepository(
     @SuppressLint("MissingPermission")
     private fun tryLegacyLocation(
         cont: kotlinx.coroutines.CancellableContinuation<Result<Location>>,
-        originalError: Throwable? = null
+        originalError: Throwable? = null,
+        forceFresh: Boolean = false
     ) {
         // On older devices (e.g., Android 6), fused can fail; fall back to LocationManager.
         val handler = Handler(Looper.getMainLooper())
 
         // Try last known first for a quick win.
-        val lastKnown = sequenceOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-            .mapNotNull { provider ->
-                runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
-            }
-            .maxByOrNull { it.time }
+        if (!forceFresh) {
+            val lastKnown = sequenceOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                .mapNotNull { provider ->
+                    runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
+                }
+                .maxByOrNull { it.time }
 
-        if (lastKnown != null && cont.isActive) {
-            cont.resume(Result.success(lastKnown))
-            return
+            if (lastKnown != null && cont.isActive) {
+                cont.resume(Result.success(lastKnown))
+                return
+            }
         }
 
         val criteria = Criteria().apply {

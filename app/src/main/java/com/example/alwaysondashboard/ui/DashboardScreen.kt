@@ -29,6 +29,9 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.DirectionsRun
+import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,6 +47,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -51,13 +55,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.ui.graphics.vector.ImageVector
 import com.example.alwaysondashboard.ClockState
 import com.example.alwaysondashboard.DashboardViewModel
 import com.example.alwaysondashboard.data.CalendarEvent
@@ -215,7 +220,8 @@ fun DashboardScreen(
                         WeatherPanel(
                             state = uiState.weather,
                             units = uiState.units,
-                            onRefresh = { viewModel.refreshWeather() },
+                            onRefresh = { viewModel.refreshWeather(forceFreshLocation = true) },
+                            onToggleUnits = { viewModel.toggleUnits() },
                             onRequestPermission = {
                                 locationPermissionLauncher.launch(
                                     arrayOf(
@@ -444,6 +450,7 @@ private fun WeatherPanel(
     state: WeatherUiState,
     units: TemperatureUnit,
     onRefresh: () -> Unit,
+    onToggleUnits: () -> Unit,
     onRequestPermission: () -> Unit,
     hasLocationPermission: Boolean,
     metrics: DashboardMetrics,
@@ -460,6 +467,15 @@ private fun WeatherPanel(
             verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing + 2.dp)
         ) {
             when {
+                state.data != null -> WeatherContent(
+                    bundle = state.data,
+                    units = units,
+                    metrics = metrics,
+                    onRefresh = onRefresh,
+                    onToggleUnits = onToggleUnits,
+                    isLoading = state.isLoading
+                )
+
                 state.isLoading -> {
                     Box(
                         modifier = Modifier
@@ -470,8 +486,6 @@ private fun WeatherPanel(
                         CircularProgressIndicator()
                     }
                 }
-
-                state.data != null -> WeatherContent(bundle = state.data, units = units, metrics = metrics, onRefresh = onRefresh)
 
                 !hasLocationPermission -> PermissionPrompt(
                     message = "Allow location access to show weather.",
@@ -493,7 +507,9 @@ private fun WeatherContent(
     bundle: WeatherBundle,
     units: TemperatureUnit,
     metrics: DashboardMetrics,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onToggleUnits: () -> Unit,
+    isLoading: Boolean
 ) {
     Column(
         modifier = Modifier.fillMaxSize(),
@@ -516,10 +532,10 @@ private fun WeatherContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onRefresh) {
-                Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh")
-            }
-            Column(horizontalAlignment = Alignment.End) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
                     text = "${bundle.current.temperature.toInt()}${units.symbol}",
                     style = MaterialTheme.typography.displayMedium.copy(fontSize = metrics.tempSize),
@@ -530,6 +546,18 @@ private fun WeatherContent(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
+                IconButton(onClick = onToggleUnits, modifier = Modifier.size(32.dp)) {
+                    Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = "Swap units")
+                }
+                IconButton(onClick = onRefresh, modifier = Modifier.size(32.dp)) {
+                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh")
+                }
             }
         }
 
@@ -577,6 +605,8 @@ private fun WeatherContent(
                 }
             }
         }
+
+        RunningConditions(bundle = bundle, units = units, metrics = metrics, isLoading = isLoading)
     }
 }
 
@@ -657,6 +687,74 @@ private fun ErrorPrompt(
             Spacer(modifier = Modifier.width(6.dp))
             Text("Retry")
         }
+    }
+}
+
+@Composable
+private fun RunningConditions(
+    bundle: WeatherBundle,
+    units: TemperatureUnit,
+    metrics: DashboardMetrics,
+    isLoading: Boolean
+) {
+    val status = remember(bundle, units) { runningStatus(bundle, units) }
+    Card {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(metrics.cardPadding),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = "Running conditions",
+                    style = MaterialTheme.typography.titleSmall.copy(fontSize = metrics.headingSize),
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = status.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(
+                    imageVector = status.icon,
+                    contentDescription = status.label,
+                    tint = status.color,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
+    }
+}
+
+private data class RunningStatus(val label: String, val color: Color, val icon: ImageVector)
+
+private fun runningStatus(bundle: WeatherBundle, units: TemperatureUnit): RunningStatus {
+    val feelsLike = bundle.current.feelsLike
+    val humidity = bundle.current.humidity ?: 0
+    val tempF = if (units == TemperatureUnit.IMPERIAL) feelsLike else (feelsLike * 9 / 5) + 32
+
+    return when {
+        tempF >= 88 || tempF <= 20 || humidity >= 85 -> RunningStatus(
+            label = "Extreme conditions: indoor suggested",
+            color = Color(0xFFB91C1C),
+            icon = Icons.Default.PanTool
+        )
+        tempF in 75.0..87.9 || humidity in 70..84 -> RunningStatus(
+            label = "Caution: hydrate, go easy",
+            color = Color(0xFFF59E0B),
+            icon = Icons.Default.DirectionsRun
+        )
+        else -> RunningStatus(
+            label = "No restrictions",
+            color = Color(0xFF16A34A),
+            icon = Icons.Default.DirectionsRun
+        )
     }
 }
 
