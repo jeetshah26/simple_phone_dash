@@ -68,6 +68,9 @@ import androidx.compose.material.icons.filled.BatteryFull
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
@@ -215,7 +218,8 @@ fun DashboardScreen(
                             metrics = metrics,
                             isDarkTheme = useDarkTheme,
                             onToggleTheme = { useDarkTheme = !useDarkTheme },
-                            onSettingsClick = { showApiDialog = true }
+                            onSettingsClick = { showApiDialog = true },
+                            lastUpdatedMillis = uiState.weather.lastUpdatedMillis
                         )
                         Spacer(modifier = Modifier.height(metrics.sectionSpacing))
                         CalendarPanel(
@@ -289,7 +293,8 @@ private fun ClockPanel(
     metrics: DashboardMetrics,
     isDarkTheme: Boolean,
     onToggleTheme: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    lastUpdatedMillis: Long?
 ) {
     Card(
         modifier = Modifier.fillMaxWidth()
@@ -334,6 +339,17 @@ private fun ClockPanel(
                     style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.dateSize),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                lastUpdatedMillis?.let { ts ->
+                    val timeStr = Instant.ofEpochMilli(ts)
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalTime()
+                        .format(DateTimeFormatter.ofPattern("HH:mm"))
+                    Text(
+                        text = "Updated $timeStr",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             Row(
                 modifier = Modifier.align(Alignment.BottomEnd),
@@ -372,13 +388,19 @@ private fun BatteryIndicator(modifier: Modifier = Modifier) {
     var level by remember { mutableStateOf<Int?>(null) }
     var charging by remember { mutableStateOf(false) }
 
-    LaunchedEffect(context) {
-        val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val rawLevel = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        level = if (rawLevel >= 0 && scale > 0) (rawLevel * 100 / scale) else null
-        val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-        charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                val rawLevel = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+                level = if (rawLevel >= 0 && scale > 0) (rawLevel * 100 / scale) else level
+                val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+                charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+            }
+        }
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        context.registerReceiver(receiver, filter)
+        onDispose { context.unregisterReceiver(receiver) }
     }
 
     val icon = when {
@@ -532,7 +554,8 @@ private fun WeatherPanel(
                     metrics = metrics,
                     onRefresh = onRefresh,
                     onToggleUnits = onToggleUnits,
-                    isLoading = state.isLoading
+                    isLoading = state.isLoading,
+                    lastUpdatedMillis = state.lastUpdatedMillis
                 )
 
                 state.isLoading -> {
@@ -568,7 +591,8 @@ private fun WeatherContent(
     metrics: DashboardMetrics,
     onRefresh: () -> Unit,
     onToggleUnits: () -> Unit,
-    isLoading: Boolean
+    isLoading: Boolean,
+    lastUpdatedMillis: Long?
 ) {
     Column(
         modifier = Modifier
@@ -587,7 +611,7 @@ private fun WeatherContent(
             ) {
                 Text(
                     text = bundle.locationLabel,
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.headingSize),
+                    style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Medium
                 )
                 Text(

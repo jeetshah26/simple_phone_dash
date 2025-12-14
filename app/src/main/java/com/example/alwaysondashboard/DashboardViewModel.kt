@@ -30,7 +30,8 @@ data class ClockState(
 data class WeatherUiState(
     val isLoading: Boolean = true,
     val data: WeatherBundle? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val lastUpdatedMillis: Long? = null
 )
 
 data class DashboardUiState(
@@ -120,7 +121,7 @@ class DashboardViewModel(
             return
         }
 
-        _uiState.update { it.copy(weather = WeatherUiState(isLoading = true, data = it.weather.data)) }
+        _uiState.update { it.copy(weather = WeatherUiState(isLoading = true, data = it.weather.data, lastUpdatedMillis = it.weather.lastUpdatedMillis)) }
 
         viewModelScope.launch {
             val locationResult = locationRepository.getCurrentLocation(forceFresh = forceFreshLocation)
@@ -147,7 +148,8 @@ class DashboardViewModel(
                             weather = WeatherUiState(
                                 isLoading = false,
                                 data = bundle,
-                                errorMessage = null
+                                errorMessage = null,
+                                lastUpdatedMillis = System.currentTimeMillis()
                             )
                         )
                     }
@@ -157,7 +159,8 @@ class DashboardViewModel(
                             weather = WeatherUiState(
                                 isLoading = false,
                                 data = null,
-                                errorMessage = error.localizedMessage ?: "Weather unavailable"
+                                errorMessage = error.localizedMessage ?: "Weather unavailable",
+                                lastUpdatedMillis = it.weather.lastUpdatedMillis
                             )
                         )
                     }
