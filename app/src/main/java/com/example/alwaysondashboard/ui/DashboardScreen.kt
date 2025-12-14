@@ -22,8 +22,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
@@ -57,6 +62,12 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.BatteryFull
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
@@ -326,11 +337,12 @@ private fun ClockPanel(
             }
             Row(
                 modifier = Modifier.align(Alignment.BottomEnd),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
                     onClick = onToggleTheme,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(24.dp)
                 ) {
                     Icon(
                         imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
@@ -338,9 +350,10 @@ private fun ClockPanel(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                BatteryIndicator()
                 IconButton(
                     onClick = onSettingsClick,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(24.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,
@@ -349,6 +362,49 @@ private fun ClockPanel(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BatteryIndicator(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var level by remember { mutableStateOf<Int?>(null) }
+    var charging by remember { mutableStateOf(false) }
+
+    LaunchedEffect(context) {
+        val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val rawLevel = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        level = if (rawLevel >= 0 && scale > 0) (rawLevel * 100 / scale) else null
+        val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+    }
+
+    val icon = when {
+        charging -> Icons.Filled.BatteryChargingFull
+        (level ?: 100) <= 15 -> Icons.Filled.BatteryAlert
+        else -> Icons.Filled.BatteryFull
+    }
+    val tint = if ((level ?: 100) <= 15) Color(0xFFB91C1C) else MaterialTheme.colorScheme.onSurfaceVariant
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = level?.let { "Battery $it%" } ?: "Battery",
+            tint = tint,
+            modifier = Modifier.size(20.dp)
+        )
+        level?.let {
+            Text(
+                text = "$it%",
+                style = MaterialTheme.typography.labelMedium,
+                color = tint
+            )
         }
     }
 }
