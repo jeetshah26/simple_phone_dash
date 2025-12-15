@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-GRADLE_USER_HOME=$(pwd)/.gradle ./gradlew --no-daemon assembleDebug
+# GRADLE_USER_HOME=$(pwd)/.gradle ./gradlew --no-daemon assembleDebug
 
 targets=$(adb devices | awk 'NR>1 && $2=="device"{print $1}')
 for serial in $targets; do

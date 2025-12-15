@@ -23,7 +23,9 @@ data class WeatherBundle(
     val locationLabel: String,
     val current: CurrentWeather,
     val hourly: List<HourlyWeather>,
-    val tomorrow: DailyWeather?
+    val tomorrow: DailyWeather?,
+    val sunrise: Instant?,
+    val sunset: Instant?
 )
 
 data class CurrentWeather(

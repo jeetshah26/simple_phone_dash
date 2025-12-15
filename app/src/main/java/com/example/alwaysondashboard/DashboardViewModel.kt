@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -37,6 +38,8 @@ data class WeatherUiState(
 data class DashboardUiState(
     val clock: ClockState = ClockState(),
     val calendarEvents: List<CalendarEvent> = emptyList(),
+    val upcomingEvents: List<CalendarEvent> = emptyList(),
+    val defaultUpcomingTab: Boolean = false,
     val hasCalendarPermission: Boolean = false,
     val hasLocationPermission: Boolean = false,
     val weather: WeatherUiState = WeatherUiState(isLoading = false, data = null, errorMessage = "Awaiting location permission"),
@@ -56,6 +59,7 @@ class DashboardViewModel(
     private var clockJob: Job? = null
     private var customApiKey: String? = null
     private var weatherAutoJob: Job? = null
+    private var lastCalendarDay: LocalDate? = null
 
     init {
         startClock()
@@ -85,13 +89,29 @@ class DashboardViewModel(
     fun refreshCalendar() {
         if (!_uiState.value.hasCalendarPermission) return
         viewModelScope.launch {
-            val result = calendarRepository.todaysEvents()
-            result.onSuccess { events ->
+            val todayDate = LocalDate.now()
+            lastCalendarDay = todayDate
+            val todayResult = calendarRepository.todaysEvents()
+            val upcomingResult = calendarRepository.upcomingEvents()
+
+            todayResult.onSuccess { events ->
                 _uiState.update { it.copy(calendarEvents = events) }
             }.onFailure { error ->
                 _uiState.update { it.copy(calendarEvents = emptyList()) }
                 println("Calendar load error: ${error.localizedMessage}")
             }
+
+            upcomingResult.onSuccess { events ->
+                _uiState.update { it.copy(upcomingEvents = events) }
+            }.onFailure { error ->
+                _uiState.update { it.copy(upcomingEvents = emptyList()) }
+                println("Upcoming calendar load error: ${error.localizedMessage}")
+            }
+
+            val todayEvents = _uiState.value.calendarEvents
+            val upcomingEvents = _uiState.value.upcomingEvents
+            val defaultUpcoming = todayEvents.isEmpty() && upcomingEvents.isNotEmpty()
+            _uiState.update { it.copy(defaultUpcomingTab = defaultUpcoming) }
         }
     }
 
@@ -245,6 +265,11 @@ class DashboardViewModel(
                             dateText = now.format(dateFormatter)
                         )
                     )
+                }
+                val today = now.toLocalDate()
+                if (lastCalendarDay != today && _uiState.value.hasCalendarPermission) {
+                    lastCalendarDay = today
+                    refreshCalendar()
                 }
                 val millisUntilNextSecond = 1000 - (System.currentTimeMillis() % 1000)
                 delay(millisUntilNextSecond)

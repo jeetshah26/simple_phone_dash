@@ -1,13 +1,20 @@
 package com.example.alwaysondashboard.ui
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.BatteryManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -17,38 +24,37 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.filled.DirectionsRun
-import androidx.compose.material.icons.filled.PanTool
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,35 +64,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.material.icons.filled.BatteryAlert
-import androidx.compose.material.icons.filled.BatteryChargingFull
-import androidx.compose.material.icons.filled.BatteryFull
-import android.content.Intent
-import android.content.IntentFilter
-import android.os.BatteryManager
-import android.content.BroadcastReceiver
-import android.content.Context
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.alwaysondashboard.ClockState
 import com.example.alwaysondashboard.DashboardViewModel
+import com.example.alwaysondashboard.WeatherUiState
 import com.example.alwaysondashboard.data.CalendarEvent
 import com.example.alwaysondashboard.data.HourlyWeather
 import com.example.alwaysondashboard.data.TemperatureUnit
 import com.example.alwaysondashboard.data.WeatherBundle
-import com.example.alwaysondashboard.WeatherUiState
 import com.example.alwaysondashboard.ui.theme.AlwaysOnDashboardTheme
 import java.time.Instant
 import java.time.ZoneId
@@ -144,6 +138,7 @@ fun DashboardScreen(
     val rightWeight = 1f - leftWeight
     val systemDark = isSystemInDarkTheme()
     var useDarkTheme by rememberSaveable { mutableStateOf(systemDark) }
+    var themeOverridden by rememberSaveable { mutableStateOf(false) }
 
     var showApiDialog by rememberSaveable { mutableStateOf(false) }
     var apiInput by rememberSaveable { mutableStateOf("") }
@@ -179,6 +174,13 @@ fun DashboardScreen(
         if (hasCalendar) {
             viewModel.refreshCalendar()
         }
+    }
+
+    val autoTheme = remember(uiState.weather.data, uiState.clock) {
+        deriveAutoTheme(uiState.weather.data)
+    }
+    if (!themeOverridden && autoTheme != null && autoTheme != useDarkTheme) {
+        useDarkTheme = autoTheme
     }
 
     AlwaysOnDashboardTheme(useDarkTheme = useDarkTheme) {
@@ -217,13 +219,18 @@ fun DashboardScreen(
                             clock = uiState.clock,
                             metrics = metrics,
                             isDarkTheme = useDarkTheme,
-                            onToggleTheme = { useDarkTheme = !useDarkTheme },
+                            onToggleTheme = {
+                                themeOverridden = true
+                                useDarkTheme = !useDarkTheme
+                            },
                             onSettingsClick = { showApiDialog = true },
                             lastUpdatedMillis = uiState.weather.lastUpdatedMillis
                         )
                         Spacer(modifier = Modifier.height(metrics.sectionSpacing))
                         CalendarPanel(
                             events = uiState.calendarEvents,
+                            upcomingEvents = uiState.upcomingEvents,
+                            defaultToUpcoming = uiState.defaultUpcomingTab,
                             hasPermission = uiState.hasCalendarPermission,
                             onRequestPermission = {
                                 calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
@@ -434,6 +441,8 @@ private fun BatteryIndicator(modifier: Modifier = Modifier) {
 @Composable
 private fun CalendarPanel(
     events: List<CalendarEvent>,
+    upcomingEvents: List<CalendarEvent>,
+    defaultToUpcoming: Boolean,
     hasPermission: Boolean,
     onRequestPermission: () -> Unit,
     metrics: DashboardMetrics,
@@ -449,16 +458,40 @@ private fun CalendarPanel(
                 .fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing)
         ) {
+            var selectedTab by rememberSaveable(defaultToUpcoming) {
+                mutableStateOf(if (defaultToUpcoming) CalendarTab.Upcoming else CalendarTab.Today)
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Today's Events",
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.headingSize),
-                    fontWeight = FontWeight.SemiBold
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Calendar",
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.headingSize),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        CalendarTab.values().forEach { tab ->
+                            val selected = selectedTab == tab
+                            TextButton(
+                                onClick = { selectedTab = tab },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = tab.label,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
                 Icon(
                     imageVector = Icons.Default.Event,
                     contentDescription = null,
@@ -468,22 +501,29 @@ private fun CalendarPanel(
 
             if (!hasPermission) {
                 PermissionPrompt(
-                    message = "Allow calendar access to show today's events.",
+                    message = "Allow calendar access to show your events.",
                     onRequestPermission = onRequestPermission,
                     icon = Icons.Default.Event
                 )
-            } else if (events.isEmpty()) {
-                Text(
-                    text = "No events scheduled.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(events) { event ->
-                        CalendarEventRow(event, metrics)
+                val list = if (selectedTab == CalendarTab.Today) events else upcomingEvents
+                if (list.isEmpty()) {
+                    Text(
+                        text = if (selectedTab == CalendarTab.Today) "No events scheduled today." else "No upcoming events.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing / 1.5f),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(list) { event ->
+                            CalendarEventRow(
+                                event = event,
+                                metrics = metrics,
+                                showDay = selectedTab == CalendarTab.Upcoming
+                            )
+                        }
                     }
                 }
             }
@@ -491,9 +531,15 @@ private fun CalendarPanel(
     }
 }
 
+private enum class CalendarTab(val label: String) {
+    Today("Today"),
+    Upcoming("Upcoming")
+}
+
 @Composable
-private fun CalendarEventRow(event: CalendarEvent, metrics: DashboardMetrics) {
+private fun CalendarEventRow(event: CalendarEvent, metrics: DashboardMetrics, showDay: Boolean) {
     val timeFormatter = DateTimeFormatter.ofPattern("h:mm a")
+    val dayFormatter = DateTimeFormatter.ofPattern("EEE, MMM d")
     val start = Instant.ofEpochMilli(event.startMillis)
         .atZone(ZoneId.systemDefault())
         .toLocalDateTime()
@@ -518,7 +564,18 @@ private fun CalendarEventRow(event: CalendarEvent, metrics: DashboardMetrics) {
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = if (event.allDay) "All day" else "${start.format(timeFormatter)} - ${end.format(timeFormatter)}",
+                text = run {
+                    val timeText = if (event.allDay) {
+                        "All day"
+                    } else {
+                        "${start.format(timeFormatter)} - ${end.format(timeFormatter)}"
+                    }
+                    if (showDay) {
+                        "${start.toLocalDate().format(dayFormatter)} \u2022 $timeText"
+                    } else {
+                        timeText
+                    }
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -871,4 +928,16 @@ private fun hasCalendarPermission(context: android.content.Context): Boolean {
         context,
         Manifest.permission.READ_CALENDAR
     ) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun deriveAutoTheme(bundle: WeatherBundle?): Boolean? {
+    val sunrise = bundle?.sunrise ?: return null
+    val sunset = bundle.sunset ?: return null
+    val now = Instant.now()
+    val zone = ZoneId.systemDefault()
+    val localNow = now.atZone(zone)
+    val localSunrise = sunrise.atZone(zone)
+    val localSunset = sunset.atZone(zone)
+
+    return localNow.isBefore(localSunrise) || localNow.isAfter(localSunset)
 }
