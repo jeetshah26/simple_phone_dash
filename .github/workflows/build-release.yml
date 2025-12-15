@@ -53,4 +53,16 @@ jobs:
           name: app-release
           path: |
             app/build/outputs/apk/release/*.apk
-            app/build/outputs/apk/**/*.apk
+            app/build/outputs/apk/release/*.apk.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: nightly-${{ github.run_number }}
+          name: Nightly ${{ github.run_number }}
+          draft: false
+          prerelease: true
+          files: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/release/*.apk.zip
