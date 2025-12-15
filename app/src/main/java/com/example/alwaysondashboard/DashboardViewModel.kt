@@ -60,6 +60,7 @@ class DashboardViewModel(
     private var customApiKey: String? = null
     private var weatherAutoJob: Job? = null
     private var lastCalendarDay: LocalDate? = null
+    private var lastCalendarPruneMinute: Long? = null
 
     init {
         startClock()
@@ -95,7 +96,7 @@ class DashboardViewModel(
             val upcomingResult = calendarRepository.upcomingEvents()
 
             todayResult.onSuccess { events ->
-                _uiState.update { it.copy(calendarEvents = events) }
+                _uiState.update { it.copy(calendarEvents = pruneExpired(events)) }
             }.onFailure { error ->
                 _uiState.update { it.copy(calendarEvents = emptyList()) }
                 println("Calendar load error: ${error.localizedMessage}")
@@ -271,10 +272,27 @@ class DashboardViewModel(
                     lastCalendarDay = today
                     refreshCalendar()
                 }
+                val minuteBucket = System.currentTimeMillis() / 60_000L
+                if (lastCalendarPruneMinute != minuteBucket) {
+                    lastCalendarPruneMinute = minuteBucket
+                    pruneExpiredToday()
+                }
                 val millisUntilNextSecond = 1000 - (System.currentTimeMillis() % 1000)
                 delay(millisUntilNextSecond)
             }
         }
+    }
+
+    private fun pruneExpiredToday() {
+        val nowMillis = System.currentTimeMillis()
+        val filtered = pruneExpired(_uiState.value.calendarEvents, nowMillis)
+        if (filtered != _uiState.value.calendarEvents) {
+            _uiState.update { it.copy(calendarEvents = filtered) }
+        }
+    }
+
+    private fun pruneExpired(events: List<CalendarEvent>, nowMillis: Long = System.currentTimeMillis()): List<CalendarEvent> {
+        return events.filter { it.allDay || it.endMillis >= nowMillis }
     }
 
     override fun onCleared() {

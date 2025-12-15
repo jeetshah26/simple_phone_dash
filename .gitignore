@@ -10,6 +10,9 @@ build/
 
 # Local configs
 local.properties
+release.keystore
+*.keystore
+*.keystore.base64.txt
 
 # OS junk
 .DS_Store
