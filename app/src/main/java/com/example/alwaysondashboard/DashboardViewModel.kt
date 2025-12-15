@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -30,12 +31,15 @@ data class ClockState(
 data class WeatherUiState(
     val isLoading: Boolean = true,
     val data: WeatherBundle? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val lastUpdatedMillis: Long? = null
 )
 
 data class DashboardUiState(
     val clock: ClockState = ClockState(),
     val calendarEvents: List<CalendarEvent> = emptyList(),
+    val upcomingEvents: List<CalendarEvent> = emptyList(),
+    val defaultUpcomingTab: Boolean = false,
     val hasCalendarPermission: Boolean = false,
     val hasLocationPermission: Boolean = false,
     val weather: WeatherUiState = WeatherUiState(isLoading = false, data = null, errorMessage = "Awaiting location permission"),
@@ -53,6 +57,9 @@ class DashboardViewModel(
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
 
     private var clockJob: Job? = null
+    private var customApiKey: String? = null
+    private var weatherAutoJob: Job? = null
+    private var lastCalendarDay: LocalDate? = null
 
     init {
         startClock()
@@ -72,6 +79,7 @@ class DashboardViewModel(
 
         if (needWeatherRefresh) {
             refreshWeather()
+            startWeatherAutoRefresh()
         }
         if (needCalendarRefresh) {
             refreshCalendar()
@@ -81,17 +89,45 @@ class DashboardViewModel(
     fun refreshCalendar() {
         if (!_uiState.value.hasCalendarPermission) return
         viewModelScope.launch {
-            val result = calendarRepository.todaysEvents()
-            result.onSuccess { events ->
+            val todayDate = LocalDate.now()
+            lastCalendarDay = todayDate
+            val todayResult = calendarRepository.todaysEvents()
+            val upcomingResult = calendarRepository.upcomingEvents()
+
+            todayResult.onSuccess { events ->
                 _uiState.update { it.copy(calendarEvents = events) }
             }.onFailure { error ->
                 _uiState.update { it.copy(calendarEvents = emptyList()) }
                 println("Calendar load error: ${error.localizedMessage}")
             }
+
+            upcomingResult.onSuccess { events ->
+                _uiState.update { it.copy(upcomingEvents = events) }
+            }.onFailure { error ->
+                _uiState.update { it.copy(upcomingEvents = emptyList()) }
+                println("Upcoming calendar load error: ${error.localizedMessage}")
+            }
+
+            val todayEvents = _uiState.value.calendarEvents
+            val upcomingEvents = _uiState.value.upcomingEvents
+            val defaultUpcoming = todayEvents.isEmpty() && upcomingEvents.isNotEmpty()
+            _uiState.update { it.copy(defaultUpcomingTab = defaultUpcoming) }
         }
     }
 
-    fun refreshWeather() {
+    private fun startWeatherAutoRefresh() {
+        weatherAutoJob?.cancel()
+        if (!_uiState.value.hasLocationPermission) return
+
+        weatherAutoJob = viewModelScope.launch {
+            while (isActive) {
+                delay(15 * 60 * 1000L) // 15 minutes
+                refreshWeather()
+            }
+        }
+    }
+
+    fun refreshWeather(forceFreshLocation: Boolean = false) {
         if (!_uiState.value.hasLocationPermission) {
             _uiState.update {
                 it.copy(
@@ -105,10 +141,10 @@ class DashboardViewModel(
             return
         }
 
-        _uiState.update { it.copy(weather = WeatherUiState(isLoading = true, data = it.weather.data)) }
+        _uiState.update { it.copy(weather = WeatherUiState(isLoading = true, data = it.weather.data, lastUpdatedMillis = it.weather.lastUpdatedMillis)) }
 
         viewModelScope.launch {
-            val locationResult = locationRepository.getCurrentLocation()
+            val locationResult = locationRepository.getCurrentLocation(forceFresh = forceFreshLocation)
             locationResult.onFailure { error ->
                 _uiState.update {
                     it.copy(
@@ -123,7 +159,8 @@ class DashboardViewModel(
                 val weatherResult = weatherRepository.loadWeather(
                     latitude = location.latitude,
                     longitude = location.longitude,
-                    units = _uiState.value.units
+                    units = _uiState.value.units,
+                    apiKeyOverride = customApiKey
                 )
                 weatherResult.onSuccess { bundle ->
                     _uiState.update {
@@ -131,7 +168,8 @@ class DashboardViewModel(
                             weather = WeatherUiState(
                                 isLoading = false,
                                 data = bundle,
-                                errorMessage = null
+                                errorMessage = null,
+                                lastUpdatedMillis = System.currentTimeMillis()
                             )
                         )
                     }
@@ -141,13 +179,76 @@ class DashboardViewModel(
                             weather = WeatherUiState(
                                 isLoading = false,
                                 data = null,
-                                errorMessage = error.localizedMessage ?: "Weather unavailable"
+                                errorMessage = error.localizedMessage ?: "Weather unavailable",
+                                lastUpdatedMillis = it.weather.lastUpdatedMillis
                             )
                         )
                     }
                 }
             }
         }
+    }
+
+    fun updateApiKey(key: String) {
+        customApiKey = key.trim().ifEmpty { null }
+        refreshWeather()
+        startWeatherAutoRefresh()
+    }
+
+    fun toggleUnits() {
+        val newUnits = if (_uiState.value.units == TemperatureUnit.METRIC) {
+            TemperatureUnit.IMPERIAL
+        } else {
+            TemperatureUnit.METRIC
+        }
+        val converted = _uiState.value.weather.data?.let { bundle ->
+            convertBundleUnits(bundle, _uiState.value.units, newUnits)
+        }
+        _uiState.update {
+            it.copy(
+                units = newUnits,
+                weather = it.weather.copy(data = converted ?: it.weather.data)
+            )
+        }
+        refreshWeather()
+    }
+
+    private fun convertBundleUnits(
+        bundle: WeatherBundle,
+        from: TemperatureUnit,
+        to: TemperatureUnit
+    ): WeatherBundle {
+        if (from == to) return bundle
+        val tempConverter: (Double) -> Double = { value ->
+            if (to == TemperatureUnit.IMPERIAL) (value * 9 / 5) + 32 else (value - 32) * 5 / 9
+        }
+        val windConverter: (Double?) -> Double? = { value ->
+            value?.let {
+                if (to == TemperatureUnit.IMPERIAL) it * 2.23694 else it / 2.23694
+            }
+        }
+
+        fun convertCurrent(c: com.example.alwaysondashboard.data.CurrentWeather) =
+            c.copy(
+                temperature = tempConverter(c.temperature),
+                feelsLike = tempConverter(c.feelsLike),
+                windSpeed = windConverter(c.windSpeed)
+            )
+
+        fun convertHourly(h: com.example.alwaysondashboard.data.HourlyWeather) =
+            h.copy(temperature = tempConverter(h.temperature))
+
+        fun convertDaily(d: com.example.alwaysondashboard.data.DailyWeather) =
+            d.copy(
+                minTemp = tempConverter(d.minTemp),
+                maxTemp = tempConverter(d.maxTemp)
+            )
+
+        return bundle.copy(
+            current = convertCurrent(bundle.current),
+            hourly = bundle.hourly.map { convertHourly(it) },
+            tomorrow = bundle.tomorrow?.let { convertDaily(it) }
+        )
     }
 
     private fun startClock() {
@@ -165,6 +266,11 @@ class DashboardViewModel(
                         )
                     )
                 }
+                val today = now.toLocalDate()
+                if (lastCalendarDay != today && _uiState.value.hasCalendarPermission) {
+                    lastCalendarDay = today
+                    refreshCalendar()
+                }
                 val millisUntilNextSecond = 1000 - (System.currentTimeMillis() % 1000)
                 delay(millisUntilNextSecond)
             }
@@ -173,6 +279,7 @@ class DashboardViewModel(
 
     override fun onCleared() {
         clockJob?.cancel()
+        weatherAutoJob?.cancel()
         super.onCleared()
     }
 

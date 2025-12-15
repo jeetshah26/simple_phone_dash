@@ -26,9 +26,10 @@ class WeatherRepository(
     suspend fun loadWeather(
         latitude: Double,
         longitude: Double,
-        units: TemperatureUnit
+        units: TemperatureUnit,
+        apiKeyOverride: String? = null
     ): Result<WeatherBundle> {
-        val apiKey = BuildConfig.OPEN_WEATHER_API_KEY
+        val apiKey = apiKeyOverride?.takeIf { it.isNotBlank() } ?: BuildConfig.OPEN_WEATHER_API_KEY
         if (apiKey.isEmpty()) {
             return Result.failure(IllegalStateException("Missing OPEN_WEATHER_API_KEY in local.properties"))
         }
@@ -97,6 +98,8 @@ private fun toDomain(
         humidity = current.main.humidity,
         windSpeed = current.wind?.speed
     )
+    val sunrise = current.sys?.sunrise?.let { Instant.ofEpochSecond(it) }
+    val sunset = current.sys?.sunset?.let { Instant.ofEpochSecond(it) }
 
     val hourlyDomain = forecast.list.take(12).map {
         HourlyWeather(
@@ -131,7 +134,9 @@ private fun toDomain(
         locationLabel = forecast.city.name ?: "Current location",
         current = currentWeather,
         hourly = hourlyDomain,
-        tomorrow = tomorrow
+        tomorrow = tomorrow,
+        sunrise = sunrise,
+        sunset = sunset
     )
 }
 
@@ -173,7 +178,8 @@ data class Wind(val speed: Double?)
 data class CurrentWeatherResponse(
     val weather: List<WeatherIcon>,
     val main: WeatherMain,
-    val wind: Wind?
+    val wind: Wind?,
+    val sys: CurrentSys?
 )
 
 data class ForecastResponse(
@@ -191,4 +197,9 @@ data class ForecastItem(
     val main: WeatherMain,
     val weather: List<WeatherIcon>,
     val pop: Double?
+)
+
+data class CurrentSys(
+    val sunrise: Long?,
+    val sunset: Long?
 )

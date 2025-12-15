@@ -1,13 +1,20 @@
 package com.example.alwaysondashboard.ui
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.BatteryManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -17,14 +24,25 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.PanTool
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,12 +51,21 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -47,14 +74,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.ui.graphics.vector.ImageVector
 import com.example.alwaysondashboard.ClockState
 import com.example.alwaysondashboard.DashboardViewModel
+import com.example.alwaysondashboard.WeatherUiState
 import com.example.alwaysondashboard.data.CalendarEvent
 import com.example.alwaysondashboard.data.HourlyWeather
 import com.example.alwaysondashboard.data.TemperatureUnit
 import com.example.alwaysondashboard.data.WeatherBundle
-import com.example.alwaysondashboard.WeatherUiState
 import com.example.alwaysondashboard.ui.theme.AlwaysOnDashboardTheme
 import java.time.Instant
 import java.time.ZoneId
@@ -110,14 +136,31 @@ fun DashboardScreen(
     val isNarrowScreen = config.screenWidthDp < 700
     val leftWeight = if (isNarrowScreen) 0.45f else 0.4f
     val rightWeight = 1f - leftWeight
+    val systemDark = isSystemInDarkTheme()
+    var useDarkTheme by rememberSaveable { mutableStateOf(systemDark) }
+    var themeOverridden by rememberSaveable { mutableStateOf(false) }
 
-    val permissionLauncher = rememberLauncherForActivityResult(
+    var showApiDialog by rememberSaveable { mutableStateOf(false) }
+    var apiInput by rememberSaveable { mutableStateOf("") }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
         onResult = { result ->
             val hasLocation = result[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                     result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-            val hasCalendar = result[Manifest.permission.READ_CALENDAR] == true
-            viewModel.onPermissionsUpdated(hasLocation, hasCalendar)
+            viewModel.onPermissionsUpdated(
+                hasLocation = hasLocation,
+                hasCalendar = uiState.hasCalendarPermission
+            )
+        }
+    )
+    val calendarPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted ->
+            viewModel.onPermissionsUpdated(
+                hasLocation = uiState.hasLocationPermission,
+                hasCalendar = granted
+            )
         }
     )
 
@@ -133,7 +176,14 @@ fun DashboardScreen(
         }
     }
 
-    AlwaysOnDashboardTheme {
+    val autoTheme = remember(uiState.weather.data, uiState.clock) {
+        deriveAutoTheme(uiState.weather.data)
+    }
+    if (!themeOverridden && autoTheme != null && autoTheme != useDarkTheme) {
+        useDarkTheme = autoTheme
+    }
+
+    AlwaysOnDashboardTheme(useDarkTheme = useDarkTheme) {
         Surface(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -165,13 +215,25 @@ fun DashboardScreen(
                     Column(
                         modifier = leftModifier
                     ) {
-                        ClockPanel(uiState.clock, metrics)
+                        ClockPanel(
+                            clock = uiState.clock,
+                            metrics = metrics,
+                            isDarkTheme = useDarkTheme,
+                            onToggleTheme = {
+                                themeOverridden = true
+                                useDarkTheme = !useDarkTheme
+                            },
+                            onSettingsClick = { showApiDialog = true },
+                            lastUpdatedMillis = uiState.weather.lastUpdatedMillis
+                        )
                         Spacer(modifier = Modifier.height(metrics.sectionSpacing))
                         CalendarPanel(
                             events = uiState.calendarEvents,
+                            upcomingEvents = uiState.upcomingEvents,
+                            defaultToUpcoming = uiState.defaultUpcomingTab,
                             hasPermission = uiState.hasCalendarPermission,
                             onRequestPermission = {
-                                permissionLauncher.launch(arrayOf(Manifest.permission.READ_CALENDAR))
+                                calendarPermissionLauncher.launch(Manifest.permission.READ_CALENDAR)
                             },
                             metrics = metrics,
                             modifier = Modifier.weight(1f)
@@ -183,15 +245,17 @@ fun DashboardScreen(
                         WeatherPanel(
                             state = uiState.weather,
                             units = uiState.units,
-                            onRefresh = { viewModel.refreshWeather() },
+                            onRefresh = { viewModel.refreshWeather(forceFreshLocation = true) },
+                            onToggleUnits = { viewModel.toggleUnits() },
                             onRequestPermission = {
-                                permissionLauncher.launch(
+                                locationPermissionLauncher.launch(
                                     arrayOf(
                                         Manifest.permission.ACCESS_FINE_LOCATION,
                                         Manifest.permission.ACCESS_COARSE_LOCATION
                                     )
                                 )
                             },
+                            hasLocationPermission = uiState.hasLocationPermission,
                             metrics = metrics,
                             modifier = Modifier.weight(1f)
                         )
@@ -200,48 +264,175 @@ fun DashboardScreen(
             }
         }
     }
+
+    if (showApiDialog) {
+        AlertDialog(
+            onDismissRequest = { showApiDialog = false },
+            title = { Text("Set OpenWeather API key") },
+            text = {
+                TextField(
+                    value = apiInput,
+                    onValueChange = { apiInput = it },
+                    placeholder = { Text("Enter API key") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.updateApiKey(apiInput)
+                    showApiDialog = false
+                }) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showApiDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 @Composable
-private fun ClockPanel(clock: ClockState, metrics: DashboardMetrics) {
+private fun ClockPanel(
+    clock: ClockState,
+    metrics: DashboardMetrics,
+    isDarkTheme: Boolean,
+    onToggleTheme: () -> Unit,
+    onSettingsClick: () -> Unit,
+    lastUpdatedMillis: Long?
+) {
     Card(
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
-            modifier = Modifier.padding(metrics.cardPadding),
-            verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing / 1.5f)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(metrics.cardPadding)
         ) {
-            val parts = clock.timeText.trim().split(" ")
-            val mainTime = if (parts.size >= 2) parts.dropLast(1).joinToString(" ") else clock.timeText
-            val ampm = if (parts.size >= 2) parts.last() else ""
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (ampm.isNotEmpty()) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing / 1.5f)
+            ) {
+                val parts = clock.timeText.trim().split(" ")
+                val mainTime = if (parts.size >= 2) parts.dropLast(1).joinToString(" ") else clock.timeText
+                val ampm = if (parts.size >= 2) parts.last() else ""
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (ampm.isNotEmpty()) {
+                        Text(
+                            text = mainTime,
+                            modifier = Modifier.alignByBaseline(),
+                            style = MaterialTheme.typography.displayLarge.copy(fontSize = metrics.clockSize),
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = ampm,
+                            modifier = Modifier.alignByBaseline(),
+                            style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.ampmSize),
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Text(
+                            text = mainTime,
+                            style = MaterialTheme.typography.displayLarge.copy(fontSize = metrics.clockSize),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                Text(
+                    text = clock.dateText,
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.dateSize),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                lastUpdatedMillis?.let { ts ->
+                    val timeStr = Instant.ofEpochMilli(ts)
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalTime()
+                        .format(DateTimeFormatter.ofPattern("HH:mm"))
                     Text(
-                        text = mainTime,
-                        modifier = Modifier.alignByBaseline(),
-                        style = MaterialTheme.typography.displayLarge.copy(fontSize = metrics.clockSize),
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = ampm,
-                        modifier = Modifier.alignByBaseline(),
-                        style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.ampmSize),
-                        fontWeight = FontWeight.SemiBold,
+                        text = "Updated $timeStr",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    Text(
-                        text = mainTime,
-                        style = MaterialTheme.typography.displayLarge.copy(fontSize = metrics.clockSize),
-                        fontWeight = FontWeight.Bold
                     )
                 }
             }
+            Row(
+                modifier = Modifier.align(Alignment.BottomEnd),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onToggleTheme,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isDarkTheme) Icons.Default.LightMode else Icons.Default.DarkMode,
+                        contentDescription = "Toggle theme",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                BatteryIndicator()
+                IconButton(
+                    onClick = onSettingsClick,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BatteryIndicator(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var level by remember { mutableStateOf<Int?>(null) }
+    var charging by remember { mutableStateOf(false) }
+
+    DisposableEffect(context) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                val rawLevel = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+                level = if (rawLevel >= 0 && scale > 0) (rawLevel * 100 / scale) else level
+                val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+                charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+            }
+        }
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        context.registerReceiver(receiver, filter)
+        onDispose { context.unregisterReceiver(receiver) }
+    }
+
+    val icon = when {
+        charging -> Icons.Filled.BatteryChargingFull
+        (level ?: 100) <= 15 -> Icons.Filled.BatteryAlert
+        else -> Icons.Filled.BatteryFull
+    }
+    val tint = if ((level ?: 100) <= 15) Color(0xFFB91C1C) else MaterialTheme.colorScheme.onSurfaceVariant
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = level?.let { "Battery $it%" } ?: "Battery",
+            tint = tint,
+            modifier = Modifier.size(20.dp)
+        )
+        level?.let {
             Text(
-                text = clock.dateText,
-                style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.dateSize),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = "$it%",
+                style = MaterialTheme.typography.labelMedium,
+                color = tint
             )
         }
     }
@@ -250,6 +441,8 @@ private fun ClockPanel(clock: ClockState, metrics: DashboardMetrics) {
 @Composable
 private fun CalendarPanel(
     events: List<CalendarEvent>,
+    upcomingEvents: List<CalendarEvent>,
+    defaultToUpcoming: Boolean,
     hasPermission: Boolean,
     onRequestPermission: () -> Unit,
     metrics: DashboardMetrics,
@@ -265,16 +458,40 @@ private fun CalendarPanel(
                 .fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing)
         ) {
+            var selectedTab by rememberSaveable(defaultToUpcoming) {
+                mutableStateOf(if (defaultToUpcoming) CalendarTab.Upcoming else CalendarTab.Today)
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "Today's Events",
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.headingSize),
-                    fontWeight = FontWeight.SemiBold
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Calendar",
+                        style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.headingSize),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        CalendarTab.values().forEach { tab ->
+                            val selected = selectedTab == tab
+                            TextButton(
+                                onClick = { selectedTab = tab },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = tab.label,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
                 Icon(
                     imageVector = Icons.Default.Event,
                     contentDescription = null,
@@ -284,22 +501,29 @@ private fun CalendarPanel(
 
             if (!hasPermission) {
                 PermissionPrompt(
-                    message = "Allow calendar access to show today's events.",
+                    message = "Allow calendar access to show your events.",
                     onRequestPermission = onRequestPermission,
                     icon = Icons.Default.Event
                 )
-            } else if (events.isEmpty()) {
-                Text(
-                    text = "No events scheduled.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(events) { event ->
-                        CalendarEventRow(event, metrics)
+                val list = if (selectedTab == CalendarTab.Today) events else upcomingEvents
+                if (list.isEmpty()) {
+                    Text(
+                        text = if (selectedTab == CalendarTab.Today) "No events scheduled today." else "No upcoming events.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing / 1.5f),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(list) { event ->
+                            CalendarEventRow(
+                                event = event,
+                                metrics = metrics,
+                                showDay = selectedTab == CalendarTab.Upcoming
+                            )
+                        }
                     }
                 }
             }
@@ -307,9 +531,15 @@ private fun CalendarPanel(
     }
 }
 
+private enum class CalendarTab(val label: String) {
+    Today("Today"),
+    Upcoming("Upcoming")
+}
+
 @Composable
-private fun CalendarEventRow(event: CalendarEvent, metrics: DashboardMetrics) {
+private fun CalendarEventRow(event: CalendarEvent, metrics: DashboardMetrics, showDay: Boolean) {
     val timeFormatter = DateTimeFormatter.ofPattern("h:mm a")
+    val dayFormatter = DateTimeFormatter.ofPattern("EEE, MMM d")
     val start = Instant.ofEpochMilli(event.startMillis)
         .atZone(ZoneId.systemDefault())
         .toLocalDateTime()
@@ -334,7 +564,18 @@ private fun CalendarEventRow(event: CalendarEvent, metrics: DashboardMetrics) {
                 overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = if (event.allDay) "All day" else "${start.format(timeFormatter)} - ${end.format(timeFormatter)}",
+                text = run {
+                    val timeText = if (event.allDay) {
+                        "All day"
+                    } else {
+                        "${start.format(timeFormatter)} - ${end.format(timeFormatter)}"
+                    }
+                    if (showDay) {
+                        "${start.toLocalDate().format(dayFormatter)} \u2022 $timeText"
+                    } else {
+                        timeText
+                    }
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -347,7 +588,9 @@ private fun WeatherPanel(
     state: WeatherUiState,
     units: TemperatureUnit,
     onRefresh: () -> Unit,
+    onToggleUnits: () -> Unit,
     onRequestPermission: () -> Unit,
+    hasLocationPermission: Boolean,
     metrics: DashboardMetrics,
     modifier: Modifier = Modifier
 ) {
@@ -362,6 +605,16 @@ private fun WeatherPanel(
             verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing + 2.dp)
         ) {
             when {
+                state.data != null -> WeatherContent(
+                    bundle = state.data,
+                    units = units,
+                    metrics = metrics,
+                    onRefresh = onRefresh,
+                    onToggleUnits = onToggleUnits,
+                    isLoading = state.isLoading,
+                    lastUpdatedMillis = state.lastUpdatedMillis
+                )
+
                 state.isLoading -> {
                     Box(
                         modifier = Modifier
@@ -373,12 +626,15 @@ private fun WeatherPanel(
                     }
                 }
 
-                state.data != null -> WeatherContent(bundle = state.data, units = units, metrics = metrics, onRefresh = onRefresh)
-
-                state.errorMessage != null -> PermissionPrompt(
-                    message = state.errorMessage,
+                !hasLocationPermission -> PermissionPrompt(
+                    message = "Allow location access to show weather.",
                     onRequestPermission = onRequestPermission,
                     icon = Icons.Default.LocationOn
+                )
+
+                state.errorMessage != null -> ErrorPrompt(
+                    message = state.errorMessage,
+                    onRetry = onRefresh
                 )
             }
         }
@@ -390,21 +646,29 @@ private fun WeatherContent(
     bundle: WeatherBundle,
     units: TemperatureUnit,
     metrics: DashboardMetrics,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onToggleUnits: () -> Unit,
+    isLoading: Boolean,
+    lastUpdatedMillis: Long?
 ) {
     Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing)
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing * 0.4f)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(
                     text = bundle.locationLabel,
-                    style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.headingSize),
+                    style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
@@ -413,10 +677,30 @@ private fun WeatherContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onRefresh) {
-                Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh")
+            Column(
+                modifier = Modifier.padding(horizontal = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+                IconButton(onClick = onToggleUnits, modifier = Modifier.size(32.dp)) {
+                    Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = "Swap units")
+                }
+                IconButton(onClick = onRefresh, modifier = Modifier.size(32.dp)) {
+                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh")
+                }
             }
-            Column(horizontalAlignment = Alignment.End) {
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 Text(
                     text = "${bundle.current.temperature.toInt()}${units.symbol}",
                     style = MaterialTheme.typography.displayMedium.copy(fontSize = metrics.tempSize),
@@ -450,11 +734,11 @@ private fun WeatherContent(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(metrics.cardPadding),
+                        .padding(metrics.cardPadding * 0.5f),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
                             "Tomorrow",
                             fontWeight = FontWeight.SemiBold,
@@ -474,6 +758,8 @@ private fun WeatherContent(
                 }
             }
         }
+
+        RunningConditions(bundle = bundle, units = units, metrics = metrics, isLoading = isLoading)
     }
 }
 
@@ -531,6 +817,100 @@ private fun PermissionPrompt(
     }
 }
 
+@Composable
+private fun ErrorPrompt(
+    message: String,
+    onRetry: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Button(onClick = onRetry) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Retry")
+        }
+    }
+}
+
+@Composable
+private fun RunningConditions(
+    bundle: WeatherBundle,
+    units: TemperatureUnit,
+    metrics: DashboardMetrics,
+    isLoading: Boolean
+) {
+    val status = remember(bundle, units) { runningStatus(bundle, units) }
+    Card {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(metrics.cardPadding * 0.5f),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "Running conditions",
+                    style = MaterialTheme.typography.titleSmall.copy(fontSize = metrics.headingSize),
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = status.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (isLoading) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(
+                    imageVector = status.icon,
+                    contentDescription = status.label,
+                    tint = status.color,
+                    modifier = Modifier.size(32.dp)
+                )
+            }
+        }
+    }
+}
+
+private data class RunningStatus(val label: String, val color: Color, val icon: ImageVector)
+
+private fun runningStatus(bundle: WeatherBundle, units: TemperatureUnit): RunningStatus {
+    val feelsLike = bundle.current.feelsLike
+    val humidity = bundle.current.humidity ?: 0
+    val tempF = if (units == TemperatureUnit.IMPERIAL) feelsLike else (feelsLike * 9 / 5) + 32
+
+    return when {
+        tempF >= 88 || tempF <= 20 || humidity >= 85 -> RunningStatus(
+            label = "Extreme conditions: indoor suggested",
+            color = Color(0xFFB91C1C),
+            icon = Icons.Default.PanTool
+        )
+        tempF in 75.0..87.9 || humidity in 70..84 -> RunningStatus(
+            label = "Caution: hydrate, go easy",
+            color = Color(0xFFF59E0B),
+            icon = Icons.Default.DirectionsRun
+        )
+        else -> RunningStatus(
+            label = "No restrictions",
+            color = Color(0xFF16A34A),
+            icon = Icons.Default.DirectionsRun
+        )
+    }
+}
+
 private fun hasLocationPermission(context: android.content.Context): Boolean {
     val coarse = ContextCompat.checkSelfPermission(
         context,
@@ -548,4 +928,16 @@ private fun hasCalendarPermission(context: android.content.Context): Boolean {
         context,
         Manifest.permission.READ_CALENDAR
     ) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun deriveAutoTheme(bundle: WeatherBundle?): Boolean? {
+    val sunrise = bundle?.sunrise ?: return null
+    val sunset = bundle.sunset ?: return null
+    val now = Instant.now()
+    val zone = ZoneId.systemDefault()
+    val localNow = now.atZone(zone)
+    val localSunrise = sunrise.atZone(zone)
+    val localSunset = sunset.atZone(zone)
+
+    return localNow.isBefore(localSunrise) || localNow.isAfter(localSunset)
 }

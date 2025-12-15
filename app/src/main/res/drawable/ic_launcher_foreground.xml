@@ -1,0 +1,77 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="432"
+    android:viewportHeight="432">
+
+    <!-- Circular background -->
+    <path
+        android:fillColor="#42A5F5"
+        android:pathData="M216,24
+            a192,192 0 1,1 0,384
+            a192,192 0 1,1 0,-384" />
+
+    <!-- Dashboard card (rounded rectangle) -->
+    <path
+        android:fillColor="#37474F"
+        android:pathData="M72,108
+            a40,40 0 0,1 40,-40h208a40,40 0 0,1 40,40v144a40,40 0 0,1 -40,40h-208a40,40 0 0,1 -40,-40z" />
+
+    <!-- Weather — Sun -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M132,138
+            a34,34 0 1,1 68,0a34,34 0 1,1 -68,0" />
+
+    <!-- Weather — Cloud -->
+    <path
+        android:fillColor="#ECEFF1"
+        android:pathData="
+            M148,168
+            a28,20 0 0,1 56,0
+            h10
+            a22,16 0 0,1 0,32h-66
+            a16,16 0 0,1 0,-32z" />
+
+    <!-- Calendar outer -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M246,126h102v90h-102z" />
+
+    <!-- Calendar header -->
+    <path
+        android:fillColor="#EF5350"
+        android:pathData="M246,126h102v34h-102z" />
+
+    <!-- Calendar rings -->
+    <path
+        android:fillColor="#B0BEC5"
+        android:pathData="M264,126h12v34h-12z
+                          M324,126h12v34h-12z" />
+
+    <!-- Calendar squares -->
+    <path
+        android:fillColor="#90A4AE"
+        android:pathData="
+           M264,168h24v22h-24z
+           M300,168h24v22h-24z
+           M264,198h24v22h-24z
+           M300,198h24v22h-24z" />
+
+    <!-- Clock circle (centered) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M216,242
+            a58,58 0 1,0 0,116
+            a58,58 0 1,0 0,-116" />
+
+    <!-- Clock hands (centered) -->
+    <path
+        android:strokeColor="#37474F"
+        android:strokeWidth="10"
+        android:strokeLineCap="round"
+        android:pathData="
+            M216,300 L216,258
+            M216,300 L252,300" />
+
+</vector>

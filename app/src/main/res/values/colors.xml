@@ -3,4 +3,5 @@
     <color name="dark_navy">#0F172A</color>
     <color name="light_blue">#93C5FD</color>
     <color name="soft_gray">#E2E8F0</color>
+    <color name="ic_launcher_background">#E2E8F0</color>
 </resources>
