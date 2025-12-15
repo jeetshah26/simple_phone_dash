@@ -38,10 +38,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > release.keystore
-          echo "RELEASE_STORE_FILE=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
-          echo "RELEASE_STORE_PASSWORD=${ANDROID_KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
-          echo "RELEASE_KEY_ALIAS=${ANDROID_KEY_ALIAS}" >> "$GITHUB_ENV"
-          echo "RELEASE_KEY_PASSWORD=${ANDROID_KEY_PASSWORD}" >> "$GITHUB_ENV"
+          echo "ORG_GRADLE_PROJECT_RELEASE_STORE_FILE=$GITHUB_WORKSPACE/release.keystore" >> "$GITHUB_ENV"
+          echo "ORG_GRADLE_PROJECT_RELEASE_STORE_PASSWORD=${ANDROID_KEYSTORE_PASSWORD}" >> "$GITHUB_ENV"
+          echo "ORG_GRADLE_PROJECT_RELEASE_KEY_ALIAS=${ANDROID_KEY_ALIAS}" >> "$GITHUB_ENV"
+          echo "ORG_GRADLE_PROJECT_RELEASE_KEY_PASSWORD=${ANDROID_KEY_PASSWORD}" >> "$GITHUB_ENV"
           echo "OPEN_WEATHER_API_KEY=" > local.properties
 
       - name: Build release APK
@@ -53,4 +53,16 @@ jobs:
           name: app-release
           path: |
             app/build/outputs/apk/release/*.apk
-            app/build/outputs/apk/**/*.apk
+            app/build/outputs/apk/release/*.apk.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: nightly-${{ github.run_number }}
+          name: Nightly ${{ github.run_number }}
+          draft: false
+          prerelease: true
+          files: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/release/*.apk.zip
