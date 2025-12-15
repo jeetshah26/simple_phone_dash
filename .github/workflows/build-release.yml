@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,13 +49,15 @@ jobs:
       - name: Build release APK
         run: ./gradlew assembleRelease --no-daemon
 
+      - name: List APK outputs
+        run: ls -la app/build/outputs/apk/release
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-release
           path: |
             app/build/outputs/apk/release/*.apk
-            app/build/outputs/apk/release/*.apk.zip
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -65,4 +69,3 @@ jobs:
           prerelease: true
           files: |
             app/build/outputs/apk/release/*.apk
-            app/build/outputs/apk/release/*.apk.zip
