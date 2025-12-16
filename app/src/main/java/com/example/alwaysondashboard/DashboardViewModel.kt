@@ -25,7 +25,9 @@ import java.util.Locale
 
 data class ClockState(
     val timeText: String = "--:-- --",
-    val dateText: String = "--"
+    val dateText: String = "--",
+    val secondaryTimeText: String = "--:-- --",
+    val secondaryZoneLabel: String = ""
 )
 
 data class WeatherUiState(
@@ -43,7 +45,8 @@ data class DashboardUiState(
     val hasCalendarPermission: Boolean = false,
     val hasLocationPermission: Boolean = false,
     val weather: WeatherUiState = WeatherUiState(isLoading = false, data = null, errorMessage = "Awaiting location permission"),
-    val units: TemperatureUnit = TemperatureUnit.fromLocale()
+    val units: TemperatureUnit = TemperatureUnit.fromLocale(),
+    val secondaryZoneId: String = "Asia/Kolkata"
 )
 
 class DashboardViewModel(
@@ -256,18 +259,26 @@ class DashboardViewModel(
         )
     }
 
+    fun updateSecondaryZone(zoneId: String) {
+        _uiState.update { it.copy(secondaryZoneId = zoneId) }
+    }
+
     private fun startClock() {
         clockJob?.cancel()
         clockJob = viewModelScope.launch {
-            val timeFormatter = DateTimeFormatter.ofPattern("hh:mm:ss a", locale)
+            val timeFormatter = DateTimeFormatter.ofPattern("hh:mm a", locale)
             val dateFormatter = DateTimeFormatter.ofPattern("EEE, MMM d yyyy", locale)
             while (isActive) {
                 val now = LocalDateTime.now()
+                val secondaryZone = java.time.ZoneId.of(_uiState.value.secondaryZoneId)
+                val secondaryTime = now.atZone(java.time.ZoneId.systemDefault()).withZoneSameInstant(secondaryZone)
                 _uiState.update {
                     it.copy(
                         clock = ClockState(
                             timeText = now.format(timeFormatter),
-                            dateText = now.format(dateFormatter)
+                            dateText = now.format(dateFormatter),
+                            secondaryTimeText = secondaryTime.toLocalTime().format(timeFormatter),
+                            secondaryZoneLabel = secondaryZone.id.substringAfterLast("/")
                         )
                     )
                 }

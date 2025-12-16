@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -36,6 +37,7 @@ import androidx.compose.material.icons.filled.BatteryFull
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PanTool
@@ -47,6 +49,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -102,7 +106,7 @@ private data class DashboardMetrics(
 private val CompactMetrics = DashboardMetrics(
     cardPadding = 12.dp,
     sectionSpacing = 8.dp,
-    clockSize = 48.sp,
+    clockSize = 52.sp,
     ampmSize = 18.sp,
     dateSize = 16.sp,
     headingSize = 16.sp,
@@ -115,7 +119,7 @@ private val CompactMetrics = DashboardMetrics(
 private val DefaultMetrics = DashboardMetrics(
     cardPadding = 16.dp,
     sectionSpacing = 12.dp,
-    clockSize = 64.sp,
+    clockSize = 66.sp, 
     ampmSize = 20.sp,
     dateSize = 18.sp,
     headingSize = 18.sp,
@@ -142,6 +146,21 @@ fun DashboardScreen(
 
     var showApiDialog by rememberSaveable { mutableStateOf(false) }
     var apiInput by rememberSaveable { mutableStateOf("") }
+    var selectedZoneId by rememberSaveable { mutableStateOf(uiState.secondaryZoneId) }
+    val zoneOptions = remember {
+        listOf(
+            "Asia/Kolkata",
+            "America/New_York",
+            "America/Los_Angeles",
+            "Europe/London",
+            "Europe/Paris",
+            "Asia/Tokyo"
+        )
+    }
+
+    LaunchedEffect(uiState.secondaryZoneId) {
+        selectedZoneId = uiState.secondaryZoneId
+    }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
@@ -266,20 +285,55 @@ fun DashboardScreen(
     }
 
     if (showApiDialog) {
+        var zoneMenuExpanded by remember { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { showApiDialog = false },
             title = { Text("Set OpenWeather API key") },
             text = {
-                TextField(
-                    value = apiInput,
-                    onValueChange = { apiInput = it },
-                    placeholder = { Text("Enter API key") },
-                    singleLine = true
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TextField(
+                        value = apiInput,
+                        onValueChange = { apiInput = it },
+                        placeholder = { Text("Enter API key") },
+                        singleLine = true
+                    )
+                    Text(text = "Secondary time zone", style = MaterialTheme.typography.labelMedium)
+                    Box {
+                        TextButton(
+                            onClick = { zoneMenuExpanded = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(selectedZoneId, modifier = Modifier.weight(1f))
+                            Icon(
+                                imageVector = Icons.Default.ArrowDropDown,
+                                contentDescription = "Select timezone"
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = zoneMenuExpanded,
+                            onDismissRequest = { zoneMenuExpanded = false }
+                        ) {
+                            zoneOptions.forEach { id ->
+                                DropdownMenuItem(
+                                    text = { Text(id) },
+                                    onClick = {
+                                        selectedZoneId = id
+                                        zoneMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.updateApiKey(apiInput)
+                    if (apiInput.isNotBlank()) {
+                        viewModel.updateApiKey(apiInput)
+                    }
+                    if (selectedZoneId.isNotBlank()) {
+                        viewModel.updateSecondaryZone(selectedZoneId)
+                    }
                     showApiDialog = false
                 }) {
                     Text("Save")
@@ -311,35 +365,29 @@ private fun ClockPanel(
                 .fillMaxWidth()
                 .padding(metrics.cardPadding)
         ) {
+            val config = LocalConfiguration.current
+            val sizeScale = if (config.screenWidthDp < 600 || config.smallestScreenWidthDp < 600) 0.82f else 1f
             Column(
                 verticalArrangement = Arrangement.spacedBy(metrics.sectionSpacing / 1.5f)
             ) {
-                val parts = clock.timeText.trim().split(" ")
-                val mainTime = if (parts.size >= 2) parts.dropLast(1).joinToString(" ") else clock.timeText
-                val ampm = if (parts.size >= 2) parts.last() else ""
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (ampm.isNotEmpty()) {
-                        Text(
-                            text = mainTime,
-                            modifier = Modifier.alignByBaseline(),
-                            style = MaterialTheme.typography.displayLarge.copy(fontSize = metrics.clockSize),
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = ampm,
-                            modifier = Modifier.alignByBaseline(),
-                            style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.ampmSize),
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        Text(
-                            text = mainTime,
-                            style = MaterialTheme.typography.displayLarge.copy(fontSize = metrics.clockSize),
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TimeBlock(
+                        timeText = clock.timeText,
+                        label = "Local",
+                        metrics = metrics,
+                        modifier = Modifier.weight(1f),
+                        sizeScale = sizeScale
+                    )
+                    TimeBlock(
+                        timeText = clock.secondaryTimeText,
+                        label = clock.secondaryZoneLabel.ifEmpty { "Secondary" },
+                        metrics = metrics,
+                        modifier = Modifier.weight(1f),
+                        sizeScale = sizeScale
+                    )
                 }
                 Text(
                     text = clock.dateText,
@@ -386,6 +434,52 @@ private fun ClockPanel(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TimeBlock(
+    timeText: String,
+    label: String,
+    metrics: DashboardMetrics,
+    modifier: Modifier = Modifier,
+    sizeScale: Float = 1f
+) {
+    val parts = timeText.trim().split(" ")
+    val mainTime = if (parts.size >= 2) parts.dropLast(1).joinToString(" ") else timeText
+    val ampm = if (parts.size >= 2) parts.last() else ""
+    val ampmLabel = when {
+        ampm.startsWith("a", ignoreCase = true) -> "A"
+        ampm.startsWith("p", ignoreCase = true) -> "P"
+        else -> ampm
+    }
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = mainTime,
+                modifier = Modifier.alignByBaseline(),
+                style = MaterialTheme.typography.displayLarge.copy(fontSize = metrics.clockSize * 0.95f * sizeScale),
+                fontWeight = FontWeight.Bold
+            )
+            if (ampm.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(3.dp))
+                Text(
+                    text = ampmLabel,
+                    modifier = Modifier.alignByBaseline(),
+                    style = MaterialTheme.typography.titleMedium.copy(fontSize = metrics.ampmSize * 0.75f * sizeScale),
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
