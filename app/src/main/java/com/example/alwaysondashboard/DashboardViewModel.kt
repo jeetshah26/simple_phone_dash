@@ -142,6 +142,10 @@ class DashboardViewModel(
             return
         }
 
+        if (_uiState.value.hasCalendarPermission) {
+            refreshCalendar()
+        }
+
         _uiState.update { it.copy(weather = WeatherUiState(isLoading = true, data = it.weather.data, lastUpdatedMillis = it.weather.lastUpdatedMillis)) }
 
         viewModelScope.launch {
